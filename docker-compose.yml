@@ -1,0 +1,69 @@
+services:
+  mtg:
+    image: nineseconds/mtg:2
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./mtg-config.toml:/config.toml:ro
+    command: ["run", "/config.toml"]
+    depends_on:
+      - nginx
+    networks:
+      proxy-net:
+        ipv4_address: 10.77.0.20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    expose:
+      - "8444"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./landing-static:/usr/share/nginx/html:ro
+    networks:
+      proxy-net:
+        ipv4_address: 10.77.0.10
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  monitoring:
+    build:
+      context: ./monitoring
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    network_mode: "host"
+    pid: "host"
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - DASHBOARD_SECRET=${DASHBOARD_SECRET}
+      - MTG_STATS_URL=http://10.77.0.20:3129/
+      - SERVER_PORT=9090
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./mtg-config.toml:/opt/mtproto-proxy/mtg-config.toml
+      - ./docker-compose.yml:/opt/mtproto-proxy/docker-compose.yml:ro
+    depends_on:
+      - mtg
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+networks:
+  proxy-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.77.0.0/24

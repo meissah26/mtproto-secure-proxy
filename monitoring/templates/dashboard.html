@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Monitor</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace;background:#0a0a0f;color:#e0e0e0;min-height:100vh;padding:20px}
+  .header{text-align:center;margin-bottom:30px;padding:20px;border-bottom:1px solid #1a1a2e}
+  .header h1{font-size:1.4em;color:#00d4aa;letter-spacing:2px;text-transform:uppercase}
+  .header .status{font-size:.85em;color:#666;margin-top:8px}
+  .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#00d4aa;margin-right:6px;animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;max-width:1200px;margin:0 auto}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  @media(min-width:901px) and (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr)}}
+  .card{background:#12121f;border:1px solid #1a1a2e;border-radius:12px;padding:24px;transition:border-color .3s}
+  .card:hover{border-color:#00d4aa33}
+  .card h2{font-size:.8em;color:#666;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:16px}
+  .metric{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a2e}
+  .metric:last-child{border-bottom:none}
+  .metric-label{color:#888;font-size:.9em}
+  .metric-value{color:#fff;font-weight:600;font-size:1.1em}
+  .green{color:#00d4aa}.yellow{color:#f0c040}.red{color:#ff4466}
+  .progress-bar{width:100%;height:6px;background:#1a1a2e;border-radius:3px;margin-top:8px;overflow:hidden}
+  .progress-fill{height:100%;border-radius:3px;transition:width .5s ease,background .3s}
+  .country-list{list-style:none;max-height:250px;overflow-y:auto}
+  .country-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #1a1a2e}
+  .country-item:last-child{border-bottom:none}
+  .country-name{color:#ccc}.country-count{background:#1a1a2e;padding:4px 12px;border-radius:20px;font-size:.85em;color:#00d4aa;font-weight:600}
+  .big-number{font-size:2.5em;font-weight:700;color:#00d4aa;text-align:center;padding:20px 0}
+  .big-number small{font-size:.35em;color:#666;display:block;margin-top:5px;font-weight:400}
+  .refresh-info{text-align:center;color:#444;font-size:.75em;margin-top:20px;padding:10px}
+  ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#0a0a0f}::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+  /* Rotate button */
+  .btn-rotate{display:block;width:100%;padding:14px;margin-top:12px;border:2px solid #ff4466;background:transparent;color:#ff4466;font-family:inherit;font-size:.95em;font-weight:600;letter-spacing:1px;text-transform:uppercase;border-radius:8px;cursor:pointer;transition:all .3s}
+  .btn-rotate:hover{background:#ff446622}
+  .btn-rotate:disabled{opacity:.4;cursor:not-allowed}
+  .btn-rotate.confirming{border-color:#f0c040;color:#f0c040;animation:blink 1s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.5}}
+  .rotate-result{margin-top:16px;padding:16px;border-radius:8px;font-size:.85em;line-height:1.6;word-break:break-all}
+  .rotate-result.success{background:#00d4aa15;border:1px solid #00d4aa33;color:#00d4aa}
+  .rotate-result.error{background:#ff446615;border:1px solid #ff446633;color:#ff4466}
+  .rotate-warning{color:#888;font-size:.8em;margin-top:10px;line-height:1.4}
+  .tg-link{display:block;margin-top:10px;padding:10px;background:#1a1a2e;border-radius:6px;color:#00d4aa;font-size:.8em;word-break:break-all;cursor:pointer;transition:background .2s}
+  .tg-link:hover{background:#2a2a3e}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>MTG Proxy Monitor</h1>
+  <div class="status"><span class="status-dot" id="statusDot"></span><span id="statusText">Connecting...</span></div>
+</div>
+<div class="grid">
+  <!-- Row 1: Telegram Clients, Telegram Connections, Users by Country -->
+  <div class="card">
+    <h2>Telegram Clients</h2>
+    <div class="big-number" id="totalClients">--<small>active sessions</small></div>
+  </div>
+  <div class="card">
+    <h2>Telegram Connections</h2>
+    <div class="big-number" id="tgConns">--<small>to Telegram DC</small></div>
+    <div id="dcList"></div>
+  </div>
+  <div class="card">
+    <h2>Users by Country</h2>
+    <ul class="country-list" id="countryList"><li class="country-item"><span class="country-name">Loading...</span></li></ul>
+  </div>
+
+  <!-- Row 2: CPU & Load, Memory, Disk -->
+  <div class="card">
+    <h2>CPU &amp; Load</h2>
+    <div class="metric"><span class="metric-label">CPU</span><span class="metric-value" id="cpuPct">--</span></div>
+    <div class="progress-bar"><div class="progress-fill" id="cpuBar" style="width:0%;background:#00d4aa"></div></div>
+    <div class="metric" style="margin-top:12px"><span class="metric-label">Load (1/5/15m)</span><span class="metric-value" id="loadAvg">--</span></div>
+    <div class="metric"><span class="metric-label">Uptime</span><span class="metric-value green" id="uptime">--</span></div>
+  </div>
+  <div class="card">
+    <h2>Memory</h2>
+    <div class="metric"><span class="metric-label">Used / Total</span><span class="metric-value" id="memUsage">--</span></div>
+    <div class="progress-bar"><div class="progress-fill" id="memBar" style="width:0%;background:#00d4aa"></div></div>
+  </div>
+  <div class="card">
+    <h2>Disk</h2>
+    <div class="metric"><span class="metric-label">Used / Total</span><span class="metric-value" id="diskUsage">--</span></div>
+    <div class="progress-bar"><div class="progress-fill" id="diskBar" style="width:0%;background:#00d4aa"></div></div>
+  </div>
+
+  <!-- Row 3: Traffic, Security, Rotate Secret -->
+  <div class="card">
+    <h2>Traffic</h2>
+    <div class="metric"><span class="metric-label">Client &rarr; Telegram</span><span class="metric-value green" id="tgUp">--</span></div>
+    <div class="metric"><span class="metric-label">Telegram &rarr; Client</span><span class="metric-value green" id="tgDown">--</span></div>
+    <div class="metric"><span class="metric-label">Cloak In</span><span class="metric-value" id="cloakIn">--</span></div>
+    <div class="metric"><span class="metric-label">Cloak Out</span><span class="metric-value" id="cloakOut">--</span></div>
+  </div>
+  <div class="card">
+    <h2>Security</h2>
+    <div class="metric"><span class="metric-label">Replay Attacks</span><span class="metric-value green" id="replays">0</span></div>
+    <div class="metric"><span class="metric-label">Cloak Redirects</span><span class="metric-value" id="cloakCount">0</span></div>
+    <div class="metric"><span class="metric-label">Active Cloak</span><span class="metric-value" id="cloakActive">0</span></div>
+    <div class="metric"><span class="metric-label">Rejected (limit)</span><span class="metric-value" id="concReject">0</span></div>
+  </div>
+  <div class="card">
+    <h2>Rotate Secret</h2>
+    <p class="rotate-warning">Generate a new FakeTLS secret and restart the proxy. All current clients will be disconnected and need the new connection link.</p>
+    <button class="btn-rotate" id="rotateBtn" onclick="handleRotate()">Rotate Secret</button>
+    <div id="rotateResult"></div>
+  </div>
+</div>
+<div class="refresh-info">Auto-refresh every 10 seconds</div>
+
+<script>
+const SECRET="{{DASHBOARD_SECRET}}",API=`/api/stats/${SECRET}`,ROTATE_URL=`/api/rotate/${SECRET}`;
+function colorPct(p){return p<60?"#00d4aa":p<85?"#f0c040":"#ff4466"}
+function classPct(p){return p<60?"green":p<85?"yellow":"red"}
+function fmtBytes(b){if(!b)return"0 B";const u=["B","KB","MB","GB","TB"],i=Math.floor(Math.log(b)/Math.log(1024));return(b/Math.pow(1024,i)).toFixed(1)+" "+u[i]}
+
+let rotateState=0; // 0=idle, 1=confirming, 2=processing
+
+function handleRotate(){
+  const btn=document.getElementById("rotateBtn");
+  const res=document.getElementById("rotateResult");
+
+  if(rotateState===0){
+    // First click — ask confirmation
+    rotateState=1;
+    btn.textContent="Confirm rotation — click again";
+    btn.classList.add("confirming");
+    res.innerHTML='<p style="color:#f0c040;margin-top:10px;font-size:.85em">All clients will be disconnected. Are you sure?</p>';
+    // Auto-cancel after 5 seconds
+    setTimeout(()=>{
+      if(rotateState===1){
+        rotateState=0;
+        btn.textContent="Rotate Secret";
+        btn.classList.remove("confirming");
+        res.innerHTML="";
+      }
+    },5000);
+    return;
+  }
+
+  if(rotateState===1){
+    // Second click — execute
+    rotateState=2;
+    btn.textContent="Rotating...";
+    btn.disabled=true;
+    btn.classList.remove("confirming");
+    res.innerHTML="";
+
+    fetch(ROTATE_URL,{method:"POST"})
+      .then(r=>r.json())
+      .then(data=>{
+        if(data.success){
+          res.innerHTML=`<div class="rotate-result success">
+            <strong>Secret rotated successfully</strong><br>
+            Old: ${data.old_secret}<br>
+            New: ${data.new_secret}<br>
+            Restart: ${data.restart_ok?"OK":"FAILED"}<br>
+            <span class="tg-link" onclick="navigator.clipboard.writeText('${data.tg_link}').then(()=>this.textContent='Copied!')" title="Click to copy">${data.tg_link}</span>
+          </div>`;
+        } else {
+          res.innerHTML=`<div class="rotate-result error">Error: ${data.error}</div>`;
+        }
+        rotateState=0;
+        btn.textContent="Rotate Secret";
+        btn.disabled=false;
+      })
+      .catch(e=>{
+        res.innerHTML=`<div class="rotate-result error">Error: ${e.message}</div>`;
+        rotateState=0;
+        btn.textContent="Rotate Secret";
+        btn.disabled=false;
+      });
+  }
+}
+
+async function refresh(){
+  try{
+    const r=await fetch(API);if(!r.ok)throw new Error("HTTP "+r.status);
+    const d=await r.json(),s=d.system||{},m=d.mtg||{},c=d.connections||{};
+    document.getElementById("statusDot").style.background="#00d4aa";
+    document.getElementById("statusText").textContent="Live \u2014 "+new Date(d.timestamp*1000).toLocaleTimeString();
+
+    // Row 1
+    document.getElementById("totalClients").innerHTML=(m.client_connections||0)+"<small>active sessions</small>";
+    document.getElementById("tgConns").innerHTML=(m.telegram_connections||0)+"<small>to Telegram DC</small>";
+    const dcs=m.telegram_dcs||{};
+    document.getElementById("dcList").innerHTML=Object.entries(dcs).map(([k,v])=>`<div class="metric"><span class="metric-label">${k}</span><span class="metric-value green">${v}</span></div>`).join("");
+
+    const countries=c.countries||{},uu=c.unique_users||0;
+    const list=document.getElementById("countryList");
+    list.innerHTML=Object.keys(countries).length===0
+      ?'<li class="country-item"><span class="country-name" style="color:#666">No users</span></li>'
+      :`<li class="country-item" style="border-bottom:1px solid #2a2a3e;padding-bottom:12px;margin-bottom:4px"><span class="metric-label">Total unique users</span><span class="country-count" style="font-size:1.1em">${uu}</span></li>`
+       +Object.entries(countries).map(([co,n])=>`<li class="country-item"><span class="country-name">${co}</span><span class="country-count">${n}</span></li>`).join("");
+
+    // Row 2
+    const cpu=s.cpu_usage_pct||0;
+    document.getElementById("cpuPct").textContent=cpu+"%";
+    document.getElementById("cpuPct").className="metric-value "+classPct(cpu);
+    document.getElementById("cpuBar").style.width=cpu+"%";
+    document.getElementById("cpuBar").style.background=colorPct(cpu);
+    document.getElementById("loadAvg").textContent=`${s.load_1m||0} / ${s.load_5m||0} / ${s.load_15m||0}`;
+    document.getElementById("uptime").textContent=s.uptime||"N/A";
+
+    const mem=s.mem_usage_pct||0;
+    document.getElementById("memUsage").textContent=`${s.mem_used_mb||0} MB / ${s.mem_total_mb||0} MB (${mem}%)`;
+    document.getElementById("memUsage").className="metric-value "+classPct(mem);
+    document.getElementById("memBar").style.width=mem+"%";
+    document.getElementById("memBar").style.background=colorPct(mem);
+
+    const disk=s.disk_usage_pct||0;
+    document.getElementById("diskUsage").textContent=`${s.disk_used_gb||0} GB / ${s.disk_total_gb||0} GB (${disk}%)`;
+    document.getElementById("diskUsage").className="metric-value "+classPct(disk);
+    document.getElementById("diskBar").style.width=disk+"%";
+    document.getElementById("diskBar").style.background=colorPct(disk);
+
+    // Row 3
+    document.getElementById("tgUp").textContent=fmtBytes(m.tg_traffic_from_client||0);
+    document.getElementById("tgDown").textContent=fmtBytes(m.tg_traffic_to_client||0);
+    document.getElementById("cloakIn").textContent=fmtBytes(m.traffic_from_client||0);
+    document.getElementById("cloakOut").textContent=fmtBytes(m.traffic_to_client||0);
+
+    const rep=m.replay_attacks||0;
+    document.getElementById("replays").textContent=rep;
+    document.getElementById("replays").className="metric-value "+(rep>0?"red":"green");
+    document.getElementById("cloakCount").textContent=m.domain_fronting_count||0;
+    document.getElementById("cloakActive").textContent=m.domain_fronting_connections||0;
+    document.getElementById("concReject").textContent=m.concurrency_limited||0;
+
+  }catch(e){
+    document.getElementById("statusDot").style.background="#ff4466";
+    document.getElementById("statusText").textContent="Error: "+e.message;
+  }
+}
+refresh();setInterval(refresh,10000);
+</script>
+</body>
+</html>
